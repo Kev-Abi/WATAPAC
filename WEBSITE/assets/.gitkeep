@@ -1,0 +1,2 @@
+Drop model.glb here. script.js probes for assets/model.glb on load and
+swaps in <model-viewer> automatically when it finds one.

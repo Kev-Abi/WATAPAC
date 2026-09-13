@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WATAPAC Interface</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Oswald:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <div class="bg-glow" aria-hidden="true"></div>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 2C12 2 5 10.5 5 15.5C5 19.09 8.13 22 12 22C15.87 22 19 19.09 19 15.5C19 10.5 12 2 12 2Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+        </svg>
+      </span>
+      <h1>WATAPAC <span>MONITORING INTERFACE</span></h1>
+    </div>
+    <div class="demo-banner" id="demoBanner">
+      <svg class="banner-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/>
+        <path d="M12 8v5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+        <circle cx="12" cy="16" r="0.9" fill="currentColor"/>
+      </svg>
+      <span>DEMO MODE &mdash; showing sample data. Live values will appear once the Raspberry Pi, weather API, and 3D model are connected.</span>
+    </div>
+  </header>
+
+  <main class="grid">
+
+    <!-- RAIN STATUS -->
+    <section class="card" data-accent="blue" data-source="pi">
+      <h2><svg viewBox="0 0 24 24" fill="none"><path d="M17 15a4.5 4.5 0 000-9 5.5 5.5 0 00-10.6 1.5A4 4 0 007 15h10z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 18l-1 2M13 18l-1 2M17 18l-1 2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>Rain Status</h2>
+      <div class="value-box">
+        <span class="value" id="rainStatus">DETECTED</span>
+      </div>
+    </section>
+
+    <!-- FLOOD RISK LEVEL -->
+    <section class="card" data-accent="amber" data-source="pi">
+      <h2><svg viewBox="0 0 24 24" fill="none"><path d="M12 3l9.5 17H2.5L12 3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 10v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="17" r="0.9" fill="currentColor"/></svg>Flood Risk Level</h2>
+      <div class="value-box">
+        <span class="value" id="floodRisk">MEDIUM</span>
+      </div>
+    </section>
+
+    <!-- EMERGENCY LIGHT STATUS -->
+    <section class="card" data-accent="green" data-source="pi">
+      <h2><svg viewBox="0 0 24 24" fill="none"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>Emergency Light Status</h2>
+      <div class="value-box stacked">
+        <span class="value" id="emergencyStatus">ACTIVE</span>
+        <span class="pill" id="batteryPill">BATTERY: 74%</span>
+      </div>
+    </section>
+
+    <!-- WEATHER FORECAST -->
+    <section class="card" data-accent="sky" data-source="weather">
+      <h2><svg viewBox="0 0 24 24" fill="none"><path d="M17 15a4.5 4.5 0 000-9 5.5 5.5 0 00-10.6 1.5A4 4 0 007 15h10z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>Weather Forecast</h2>
+      <div class="mini-grid">
+        <div class="mini-box">
+          <span class="mini-label">Condition</span>
+          <span class="mini-value" id="wxCondition">Heavy Rain</span>
+        </div>
+        <div class="mini-box">
+          <span class="mini-label">Temperature</span>
+          <span class="mini-value" id="wxTemp">27&deg;C</span>
+        </div>
+        <div class="mini-box">
+          <span class="mini-label">Humidity</span>
+          <span class="mini-value" id="wxHumidity">88%</span>
+        </div>
+        <div class="mini-box">
+          <span class="mini-label">Wind</span>
+          <span class="mini-value" id="wxWind">32 km/h</span>
+        </div>
+      </div>
+      <div class="card-footer">
+        <span id="wxSource">Source: OpenWeatherMap (pending API key)</span>
+        <span id="wxUpdated">Updated: --</span>
+      </div>
+    </section>
+
+    <!-- 3D MODEL -->
+    <section class="card model-card" data-accent="violet" data-source="model">
+      <h2><svg viewBox="0 0 24 24" fill="none"><path d="M12 2l8 4.5v11L12 22l-8-4.5v-11L12 2z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 22V11M20 6.5L12 11 4 6.5" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>3D Model</h2>
+      <div class="model-viewport" id="modelViewport">
+        <div class="model-placeholder">
+          <svg viewBox="0 0 200 200" class="model-cube" aria-hidden="true">
+            <g class="cube">
+              <polygon points="100,20 170,55 100,90 30,55" class="face top"></polygon>
+              <polygon points="30,55 100,90 100,160 30,125" class="face left"></polygon>
+              <polygon points="170,55 100,90 100,160 170,125" class="face right"></polygon>
+            </g>
+          </svg>
+          <p>3D model not yet uploaded</p>
+          <span class="hint">Drop a .glb file in /assets and it will render here</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ENERGY OUTPUT -->
+    <section class="card" data-accent="yellow" data-source="pi">
+      <h2><svg viewBox="0 0 24 24" fill="none"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>Energy Output</h2>
+      <div class="mini-grid">
+        <div class="mini-box">
+          <span class="mini-label">Voltage</span>
+          <span class="mini-value" id="energyVoltage">48.2 V</span>
+        </div>
+        <div class="mini-box">
+          <span class="mini-label">Current</span>
+          <span class="mini-value" id="energyCurrent">32 A</span>
+        </div>
+        <div class="mini-box">
+          <span class="mini-label">Power Output</span>
+          <span class="mini-value" id="energyPower">0.5 kW</span>
+        </div>
+        <div class="mini-box">
+          <span class="mini-label">Total Energy</span>
+          <span class="mini-value" id="energyTotal">0.09 kWh</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- FLOW RATE -->
+    <section class="card wide" data-accent="cyan" data-source="pi">
+      <h2><svg viewBox="0 0 24 24" fill="none"><path d="M4 12h3l2-6 4 12 2-6h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Flow Rate</h2>
+      <div class="value-box">
+        <span class="value" id="flowRate">21.3 L/MIN</span>
+      </div>
+    </section>
+
+    <!-- WATER LEVEL -->
+    <section class="card wide" data-accent="teal" data-source="pi">
+      <h2><svg viewBox="0 0 24 24" fill="none"><path d="M3 15c2-1.5 4-1.5 6 0s4 1.5 6 0 4-1.5 6 0M3 19c2-1.5 4-1.5 6 0s4 1.5 6 0 4-1.5 6 0" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M12 3v9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>Water Level</h2>
+      <div class="value-box">
+        <span class="value" id="waterLevel">NORMAL</span>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="statusbar">
+    <span id="connStatus" class="conn offline"><i class="dot"></i>Raspberry Pi: not connected</span>
+    <span id="lastUpdate">Last update: --</span>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
