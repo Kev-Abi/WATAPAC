@@ -14,6 +14,7 @@ model look more finished than it is.
 | `watapac_check_env.m` | Reports what your MATLAB release calls the blocks and parameters. **Run this first.** |
 | `watapac_params.m` | Every dimension, in one place. Validates itself. |
 | `watapac_build_turbine_3d.m` | Builds and saves `WATAPAC_3D_Simscape_Turbine.slx`. |
+| `watapac_load_log.m` | Reads logged telemetry from the Pi into a table. |
 | `legacy/` | The first draft builder, kept for reference. See "Why it was rewritten". |
 
 ## Running it
@@ -32,6 +33,26 @@ Options:
 watapac_build_turbine_3d('Open', false, 'Save', false)   % dry run
 watapac_build_turbine_3d('Params', watapac_params('n_blades', 12))
 ```
+
+## Reading the logged data
+
+The Pi writes a daily CSV and serves it back at `/api/history`. Either source
+gives the same table:
+
+```matlab
+T = watapac_load_log();                                    % ../pi/logs
+T = watapac_load_log('Hours', 72);
+T = watapac_load_log('Url', 'http://192.168.1.42:5000');   % a live Pi
+
+plot(T.timestamp, T.flowRate); ylabel('L/min'); grid on
+```
+
+Missing measurements come back as `NaN`, never `0`: the server writes an empty
+cell for a sensor it did not hear from, so an unplugged sensor cannot be
+averaged in as a real zero. Times are UTC `datetime`.
+
+This is the link that makes model-against-measurement comparison possible.
+The comparison itself is not written yet.
 
 ## If the build fails
 

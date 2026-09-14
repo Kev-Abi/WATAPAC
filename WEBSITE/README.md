@@ -2,7 +2,7 @@
 
 A real-time web dashboard for the WATAPAC flood-monitoring and water-powered energy system. It displays live sensor telemetry, weather conditions, and system status on a single screen, readable at a glance from a phone or a monitor.
 
-**Status:** interface complete. Live against the Raspberry Pi — `../pi/watapac_server.py` serves this dashboard and its telemetry from one address. Two integrations remain: the OpenWeatherMap key, and the 3D model file.
+**Status:** interface complete. Live against the Raspberry Pi — `../pi/watapac_server.py` serves this dashboard, its telemetry *and* its weather from one address. One integration remains: the 3D model file.
 
 Demo mode still exists (`DEMO_MODE = true` in `script.js`) for showing the interface without hardware.
 
@@ -53,7 +53,17 @@ Four external weather readings in a 2×2 grid:
 | Humidity | 88% |
 | Wind | 32 km/h |
 
-Includes a footer showing the data source and the time of the last successful fetch. Source: OpenWeatherMap API.
+Includes a footer showing the data source and the time of the last successful fetch — the **Pi's** fetch time, not this browser's clock, because the point of that line is how old the reading is.
+
+Fetched by the Pi, not by the browser, so the OpenWeatherMap key is never readable by someone viewing the deployed site. Configure it with `WATAPAC_OWM_KEY` on the Pi; there is nothing to set in `script.js`.
+
+Three degraded states, each shown honestly rather than hidden:
+
+| Situation | Panel shows |
+|---|---|
+| No key set on the Pi | `—` everywhere, "Weather not configured on the Pi" |
+| Pi cannot reach OpenWeatherMap | last good reading, marked "(stale — Pi cannot reach it)" |
+| OpenWeatherMap omits a field | `—` for that field only |
 
 ### 5. 3D Model
 A dedicated viewport for an interactive 3D model of the WATAPAC unit (orbit, zoom, auto-rotate).
@@ -99,8 +109,8 @@ This reports the true connection state rather than silently showing stale number
 ## Real-time behavior
 
 - **1-second refresh** on all sensor values — the dashboard re-fetches from the Pi every second and repaints
-- **10-minute refresh** on weather data — respects API rate limits, since weather doesn't change second to second
-- **Independent failure handling** — if the Pi goes offline, weather keeps updating and vice versa; one failure doesn't blank the whole screen
+- **10-minute refresh** on weather data — done by the Pi on its own thread, so there is no second timer here to keep in step
+- **Independent failure handling** — sensors and weather travel together but fail apart: the Pi sends `weather: null` when it cannot reach OpenWeatherMap, and the sensor panels are unaffected; a dead Arduino leaves the weather panel alone
 - **Graceful degradation** — a failed fetch logs a warning, flips the connection indicator, and falls back rather than crashing the page
 - **No page reloads** — values update in place via DOM updates
 
@@ -170,12 +180,12 @@ Tested at 375px (mobile) and 1280px (desktop). All glow and depth effects scale 
 
 ## Current status & integration points
 
-Three integrations are stubbed, each isolated to one function in `script.js`:
+Weather and telemetry both arrive in the single `/api/status` document, so the browser makes one request per second to one address:
 
 | # | Integration | Function | Switch to enable | Status |
 |---|---|---|---|---|
 | 1 | Raspberry Pi | `fetchFromRaspberryPi()` | already on (`DEMO_MODE = false`) | ✅ Server built — see [`../pi/`](../pi/) |
-| 2 | OpenWeatherMap | `fetchWeather()` | `OWM_API_KEY`, `OWM_LAT`, `OWM_LON` + `WEATHER_DEMO_MODE = false` | ⏳ Pending API key |
+| 2 | OpenWeatherMap | *(none — the Pi does it)* | `WATAPAC_OWM_KEY` on the Pi | ✅ Wired — ⏳ pending an API key |
 | 3 | 3D model | `loadModel()` | drop `assets/model.glb` in | ✅ Wired — ⏳ pending the model file |
 
 ### Expected JSON from the Pi
@@ -193,9 +203,19 @@ The dashboard expects this shape from `PI_ENDPOINT`:
   "power": 0.5,
   "total": 0.09,
   "flowRate": 21.3,
-  "waterLevel": "NORMAL"
+  "waterLevel": "NORMAL",
+  "weather": {
+    "condition": "Heavy Rain",
+    "temp": 27,
+    "humidity": 88,
+    "wind": 32,
+    "updatedAt": 1789401038,
+    "stale": false
+  }
 }
 ```
+
+`weather` is `null` when the Pi has no API key or has not managed a successful fetch.
 
 `arduinoConnected` is what separates "the Pi is down" from "the Pi is up but the Arduino is silent" in the status bar. Any value the Pi does not have arrives as the string `"—"`, never as `0`, so a missing sensor cannot be misread as a real zero.
 
@@ -264,13 +284,13 @@ The live site updates about a minute later.
 
 **Pending hardware/assets**
 - [x] Connect Raspberry Pi 4B sensor API
-- [ ] Add OpenWeatherMap API key and site coordinates
+- [ ] Add an OpenWeatherMap API key and site coordinates (`WATAPAC_OWM_KEY` etc. on the Pi)
 - [x] Wire the 3D viewport — [ ] still needs the model file itself
 - [ ] Expose the Pi over HTTPS (Cloudflare Tunnel) for access outside the local network
 - [ ] Calibrate the water-level and flow thresholds in `../pi/watapac_server.py`
 
 **Not yet built**
-- [ ] **Data logging** — nothing is currently saved; readings are displayed and discarded. Needed for MATLAB analysis and historical charts.
-- [ ] **Historical graphs** — trends over time for flow rate, energy output, and water level
+- [x] **Data logging** — the Pi writes a daily CSV and serves it back at `/api/history`
+- [ ] **Historical graphs** — trends over time for flow rate, energy output, and water level. The data is there now; the panels are not.
 - [ ] **Alert thresholds** — visual or audible warning when flood risk hits `HIGH`
 - [ ] **CSV export** — for analysis and reporting

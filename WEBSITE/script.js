@@ -2,14 +2,15 @@
    WATAPAC INTERFACE
    ==========================================================================
    Data chain:   Arduino (sensors) --serial--> Raspberry Pi 4B --HTTP--> here
+                 OpenWeatherMap -----HTTPS-----^
 
-   The Pi runs pi/watapac_server.py, which serves telemetry as JSON at
-   /api/status. This file polls that endpoint once per second and paints the
-   values on screen.
+   The Pi runs pi/watapac_server.py, which serves everything as one JSON
+   document at /api/status: sensor telemetry AND weather. This file polls that
+   endpoint once per second and paints the values on screen.
 
-   Two integration points remain stubbed:
-     1. OPENWEATHERMAP -> fetchWeather()
-     2. 3D MODEL       -> loadModel()
+   The browser makes exactly one request per cycle, to one address. Weather is
+   fetched by the Pi rather than here, which is what keeps the OpenWeatherMap
+   key off the public page.
    ========================================================================== */
 
 // ---------------------------------------------------------------------------
@@ -51,6 +52,7 @@ const OFFLINE_PLACEHOLDER = {
   total: "—",
   flowRate: "—",
   waterLevel: "—",
+  weather: null,
 };
 
 async function fetchFromRaspberryPi() {
@@ -67,38 +69,18 @@ async function fetchFromRaspberryPi() {
 }
 
 // ---------------------------------------------------------------------------
-// 2. OPENWEATHERMAP
+// 2. WEATHER
 // ---------------------------------------------------------------------------
-// Once you have an API key, fill these in and set WEATHER_DEMO_MODE = false.
-// Docs: https://openweathermap.org/current
+// Nothing to do here. The Pi polls OpenWeatherMap on its own schedule and
+// includes the result in /api/status as a "weather" object, or null when no
+// API key is configured on the Pi.
 //
-// Note: a key placed here is publicly readable by anyone who views the
-// deployed site. On the free tier the worst case is a burned rate limit, but
-// the clean fix is to let the Pi fetch weather and fold it into its own JSON.
-
-const OWM_API_KEY = "";      // <-- paste your API key here
-const OWM_LAT = "";          // <-- site latitude
-const OWM_LON = "";          // <-- site longitude
-const WEATHER_DEMO_MODE = true;
-
-async function fetchWeather() {
-  if (WEATHER_DEMO_MODE || !OWM_API_KEY || !OWM_LAT || !OWM_LON) return null;
-  const url = `https://api.openweathermap.org/data/2.5/weather?lat=${OWM_LAT}&lon=${OWM_LON}&units=metric&appid=${OWM_API_KEY}`;
-  try {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`OpenWeatherMap responded ${res.status}`);
-    const data = await res.json();
-    return {
-      condition: data.weather?.[0]?.main ?? "--",
-      temp: Math.round(data.main?.temp ?? 0),
-      humidity: data.main?.humidity ?? 0,
-      wind: Math.round((data.wind?.speed ?? 0) * 3.6), // m/s -> km/h
-    };
-  } catch (err) {
-    console.warn("OpenWeatherMap fetch failed:", err);
-    return null;
-  }
-}
+// Set it up on the Pi, not here:
+//     WATAPAC_OWM_KEY=... WATAPAC_OWM_LAT=... WATAPAC_OWM_LON=... \
+//       python3 pi/watapac_server.py
+//
+// Doing it that way means the key is never readable by someone viewing the
+// deployed site, and the browser never makes a cross-origin request.
 
 // ---------------------------------------------------------------------------
 // 3. 3D MODEL
@@ -187,6 +169,7 @@ let demoState = {
   total: 0.09,
   flowRate: 21.3,
   waterLevel: "NORMAL",
+  weather: { condition: "Heavy Rain", temp: 27, humidity: 88, wind: 32, updatedAt: null, stale: false },
 };
 
 function generateDemoData() {
@@ -294,20 +277,40 @@ function updateDashboard(piData) {
   setText("lastUpdate", `Last update: ${new Date().toLocaleTimeString()}`);
 }
 
-function updateWeather(weatherData) {
-  const w = weatherData || {
-    condition: "Heavy Rain",
-    temp: 27,
-    humidity: 88,
-    wind: 32,
-  };
-  setText("wxCondition", w.condition);
-  setText("wxTemp", `${w.temp}°C`);
-  setText("wxHumidity", `${w.humidity}%`);
-  setText("wxWind", `${w.wind} km/h`);
-  setText("wxSource", WEATHER_DEMO_MODE ? "Source: OpenWeatherMap (pending API key)" : "Source: OpenWeatherMap");
-  setText("wxUpdated", `Updated: ${new Date().toLocaleTimeString()}`);
+function updateWeather(w) {
+  // No weather means the Pi has no API key configured, or has not managed a
+  // successful fetch yet. Either way there is nothing real to show, so show
+  // nothing -- the same rule the sensor panels follow. The previous version
+  // displayed a hardcoded "Heavy Rain, 27°C" here, which looked exactly like
+  // a live reading.
+  if (!w) {
+    setText("wxCondition", "—");
+    setText("wxTemp", "—");
+    setText("wxHumidity", "—");
+    setText("wxWind", "—");
+    setText("wxSource", "Weather not configured on the Pi");
+    setText("wxUpdated", "Updated: --");
+    return;
+  }
+
+  const dash = (value, suffix) => (value === null || value === undefined ? "—" : `${value}${suffix}`);
+
+  setText("wxCondition", w.condition ?? "—");
+  setText("wxTemp", dash(w.temp, "°C"));
+  setText("wxHumidity", dash(w.humidity, "%"));
+  setText("wxWind", dash(w.wind, " km/h"));
+
+  setText("wxSource", w.stale
+    ? "Source: OpenWeatherMap (stale — Pi cannot reach it)"
+    : "Source: OpenWeatherMap");
+
+  // The Pi's fetch time, not this browser's clock: the point of the line is
+  // how old the reading is, and those two differ whenever a fetch fails.
+  setText("wxUpdated", w.updatedAt
+    ? `Updated: ${new Date(w.updatedAt * 1000).toLocaleTimeString()}`
+    : "Updated: --");
 }
+
 
 // ---------------------------------------------------------------------------
 // MAIN LOOP
@@ -316,6 +319,10 @@ function updateWeather(weatherData) {
 async function refresh() {
   const piData = await fetchFromRaspberryPi();
   updateDashboard(piData);
+  // Sensors and weather arrive in the same document, but they still fail
+  // independently: the Pi sends weather: null when it cannot reach
+  // OpenWeatherMap, and the sensor panels are unaffected.
+  updateWeather(DEMO_MODE ? demoState.weather : (piData ? piData.weather : null));
 }
 
 function init() {
@@ -327,13 +334,10 @@ function init() {
   if (banner && !DEMO_MODE) banner.style.display = "none";
 
   refresh();
-  updateWeather(null);
 
-  setInterval(refresh, 1000);       // sensor values refresh every second
-  setInterval(async () => {         // weather refreshes less often
-    const weatherData = await fetchWeather();
-    updateWeather(weatherData);
-  }, 10 * 60 * 1000);
+  // One timer, one request. The Pi re-polls OpenWeatherMap every 10 minutes on
+  // its own schedule, so there is no second timer to keep in step here.
+  setInterval(refresh, 1000);
 }
 
 document.addEventListener("DOMContentLoaded", init);

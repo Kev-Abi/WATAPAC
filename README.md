@@ -3,16 +3,22 @@
 Flood monitoring and water-powered energy generation.
 
 ```
-┌─────────┐  serial  ┌──────────────┐   HTTP   ┌─────────┐
-│ Arduino │ ───────▶ │ Raspberry Pi │ ───────▶ │ Browser │
-│ sensors │          │  pi/         │          │ WEBSITE/│
-└─────────┘          └──────────────┘          └─────────┘
-
-┌──────────────────────────────────────────────────────────┐
-│ matlab/   3-D turbine model — geometry only, not yet fed  │
-│           by the measured data                            │
-└──────────────────────────────────────────────────────────┘
+┌──────────────┐ serial  ┌──────────────┐  HTTP   ┌─────────┐
+│ Arduino      │ ──────▶ │ Raspberry Pi │ ──────▶ │ Browser │
+│ sensors      │         │    pi/       │         │ WEBSITE/│
+└──────────────┘         └───────┬──────┘         └─────────┘
+┌──────────────┐ HTTPS           │
+│OpenWeatherMap│ ──────▶         ▼
+└──────────────┘          pi/logs/*.csv
+                                 │
+                                 ▼
+                          ┌──────────────┐
+                          │   matlab/    │
+                          └──────────────┘
 ```
+
+Everything reaches the browser through the Pi. The weather key never leaves
+it, and there is one place where readings are written to disk.
 
 ## Layout
 
@@ -26,8 +32,14 @@ Flood monitoring and water-powered energy generation.
 
 ```bash
 pip3 install -r pi/requirements.txt
-python3 pi/watapac_server.py
+
+WATAPAC_OWM_KEY=your_key WATAPAC_OWM_LAT=14.5995 WATAPAC_OWM_LON=120.9842 \
+  python3 pi/watapac_server.py
 ```
+
+The key is optional — without it everything runs and the weather panel says
+so. It belongs on the Pi rather than in `script.js`, where anyone viewing the
+site could read it.
 
 Open `http://<pi-ip>:5000/`. Without an Arduino attached the server still
 runs and the dashboard correctly reports that no sensor data is arriving.
@@ -44,11 +56,13 @@ watapac_build_turbine_3d
 |---|---|
 | Dashboard | ✅ Complete, live against the Pi |
 | Pi telemetry server | ✅ Built and tested — thresholds still need calibrating |
+| Weather via the Pi | ✅ Built — ⏳ needs an OpenWeatherMap key |
+| Data logging + `/api/history` | ✅ Built and tested |
+| MATLAB log loader | ✅ Written — ⏳ untested without a MATLAB licence |
 | 3D viewport | ✅ Wired — ⏳ waiting on the `.glb` |
 | Turbine geometry model | ✅ Builds — ⏳ dimensions unverified against the prototype |
-| Weather panel | ⏳ Needs an OpenWeatherMap key |
 | Turbine physics | ❌ Not started — the model is geometry only |
-| Data logging | ❌ Not started — readings are displayed and discarded |
+| Historical charts | ❌ Not started — the data exists, the panels do not |
 
 ## A note on the placeholder numbers
 
