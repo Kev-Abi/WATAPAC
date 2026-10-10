@@ -21,7 +21,6 @@ model look more finished than it is.
 | `watapac_plant.m` | Six-stage physics, plain MATLAB — the reference. |
 | `watapac_simulate.m` | The same, over time (LED hold, state of charge). |
 | `watapac_validate.m` | Model against measurement. **Start here.** |
-| `watapac_posthoc.m` | The two post hoc hypothesis tests. No toolbox needed. |
 | `watapac_build_twin.m` | Builds `watapac_twin.slx` in Simulink. |
 | `legacy/` | The first draft builder, kept for reference. See "Why it was rewritten". |
 
@@ -97,52 +96,6 @@ stage.
 
 Neither finding is hidden behind a fitted constant. The twin computes the
 physics and prints the disagreement, which is what a twin is for.
-
-## Post hoc hypothesis tests
-
-```matlab
-watapac_posthoc
-```
-
-Runs the two exploratory hypotheses from the Integration Guide, from the
-raw Appendix G data:
-
-| | Test | Result |
-|---|---|---|
-| **H0_post_hoc1** | Paired t-test, T1 vs T2 power | t(4) = −0.396, p = .712 — **fail to reject** |
-| | Exact Wilcoxon signed-rank | W = 6, p = .8125 |
-| **H0_post_hoc2** | Pearson correlation, flow vs power | r = .9988, t(3) = 34.89, p < .001 — **reject** |
-| | Regression through the origin | 0.00983 kW per L/min |
-
-Both reproduce the figures quoted in the guide, including the 0.0098 slope
-and the ~1.8 L/min needed to reach the power bank's 0.018 kW input.
-
-**No Statistics Toolbox required.** `ttest`, `signrank`, `corr` and `fitlm`
-all need it and it is not in every install, so the t-test, the exact
-Wilcoxon, the Pearson correlation and the regression are computed from
-first principles using `betainc` and `betaincinv`, which are base MATLAB.
-Verified against published critical-t tables from df = 1 to 30.
-
-### Three cautions the tests print
-
-**The Wilcoxon cannot be significant at n = 5.** The smallest two-tailed p
-it can produce is 2/2⁵ = .0625. Failing to reject is a property of the
-sample size, not evidence of parity. Report the paired t-test as the
-result and the Wilcoxon only as a distribution-free check.
-
-**H0_post_hoc2 is partly definitional.** Hydraulic power is ρgQH, so power
-is proportional to flow by construction. r = .9988 confirms the arithmetic
-held together; it is not an independent discovery about the turbine.
-
-**The implied efficiency is constant to 1.2 %** across a 41 % spread in
-flow — an addition not in the guide, because it is the test that separates
-a real turbine characteristic from a measurement scale error. A real
-turbine has an efficiency curve. A ratio that flat is a fixed multiplier,
-which is why the correlation comes out stronger than a real turbine would
-produce. See the energy audit in `watapac_validate`.
-
-The parity result is unaffected by any of this: a scale error hits both
-turbines identically and cancels in a paired comparison.
 
 ## Reading the logged data
 

@@ -84,11 +84,19 @@ fprintf('    head of %.1f m        (the prototype is %.3f m tall)\n', ...
 fprintf('    flow of %.1f L/min    (measured %.3f L/min)\n', ...
     mean(meas_w)/(P.rho*P.g*P.head_total_m*P.eta_turbine*P.eta_generator)*60000, mean(D.wat.flow_lpm));
 
-fprintf('\n  The ratio is %0.0f-%0.0fx in EVERY trial across a %.0f %% spread in flow.\n', ...
-    min(meas_w./hyd_w), max(meas_w./hyd_w), ...
+ratios = meas_w ./ hyd_w;
+R.energy_ratio_cv = 100 * stddev(ratios) / mean(ratios);
+fprintf('\n  The ratio is %0.0f-%0.0fx in EVERY trial across a %.0f %% spread in flow,\n', ...
+    min(ratios), max(ratios), ...
     100*(max(D.wat.flow_lpm)-min(D.wat.flow_lpm))/mean(D.wat.flow_lpm));
-fprintf('  A constant ratio is the signature of a calibration scale error,\n');
-fprintf('  not of noise, a loose connection or a one-off mistake.\n');
+fprintf('  varying by only %.1f %% itself.\n', R.energy_ratio_cv);
+fprintf('\n  That constancy is the whole argument. A real turbine has an\n');
+fprintf('  efficiency curve -- it peaks near design flow and falls away on\n');
+fprintf('  either side -- so its output-to-input ratio cannot stay flat to\n');
+fprintf('  %.1f %% while the flow moves %.0f %%. A fixed multiplier between the\n', ...
+    R.energy_ratio_cv, 100*(max(D.wat.flow_lpm)-min(D.wat.flow_lpm))/mean(D.wat.flow_lpm));
+fprintf('  true output and the recorded one does exactly that. This is a\n');
+fprintf('  calibration scale error, not noise or a loose connection.\n');
 
 %% ---- 3. Can the instrument even see the real current? -----------------
 section('3. INSTRUMENT RESOLUTION - why the current reading cannot be right');
