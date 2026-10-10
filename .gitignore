@@ -29,3 +29,6 @@ desktop.ini
 .vscode/
 .idea/
 *.swp
+
+# Live-monitoring run logs
+matlab/live_logs/

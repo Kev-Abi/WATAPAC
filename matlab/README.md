@@ -22,6 +22,8 @@ model look more finished than it is.
 | `watapac_simulate.m` | The same, over time (LED hold, state of charge). |
 | `watapac_validate.m` | Model against measurement. **Start here.** |
 | `watapac_compare.m` | Arduino telemetry against the twin, stage by stage. |
+| `watapac_live.m` | **Live** bridge: Pi → Simulink, once a second. |
+| `watapac_live_sample.m` | One API reply → measured/predicted pair. Pure, testable. |
 | `watapac_build_twin.m` | Builds `watapac_twin.slx` in Simulink. |
 | `legacy/` | The first draft builder, kept for reference. See "Why it was rewritten". |
 
@@ -97,6 +99,70 @@ stage.
 
 Neither finding is hidden behind a fitted constant. The twin computes the
 physics and prints the disagreement, which is what a twin is for.
+
+## Live monitoring
+
+The twin running alongside the prototype: once a second it fetches the Pi,
+pushes the readings into the running Simulink model, computes what it
+predicts, logs both, and raises an alarm when they part company.
+
+```
+Arduino --serial--> Pi (Flask) --WiFi--> watapac_live --set_param--> Simulink Scope
+```
+
+```matlab
+watapac_build_twin                                    % once
+watapac_live('Url', 'http://192.168.1.50:5000')       % start
+watapac_live('status')
+watapac_live('stop')
+watapac_live('report')                                % MAE / RMSE / MAPE + latency
+```
+
+Find the Pi's address with `hostname -I` on the Pi. Both machines must be
+on the same network.
+
+In the model, `Flow_In`, `T1_Measured`, `T2_Measured` and `Batt_Measured`
+are Constant blocks the bridge writes to — a Constant's Value is tunable in
+Normal mode, which is what lets it change while the simulation runs. A
+**Manual Switch** named `FlowSource` chooses whether the turbines are
+driven by the simulated rainfall chain or by the live flow, so the twin
+demonstrates with or without hardware attached. Pacing runs the model at
+1 simulation second per wall-clock second.
+
+### On measuring latency
+
+The obvious approach — subtract the Pi's timestamp from the laptop's clock
+— does not measure latency. It measures **the disagreement between two
+clocks**. A Raspberry Pi has no battery-backed RTC, so until it reaches an
+NTP server its wall clock can be out by hours and the "latency" comes back
+negative or enormous.
+
+Two skew-free numbers are used instead, each measured on one machine
+against itself:
+
+| | |
+|---|---|
+| `rtt_ms` | round trip, timed with `tic`/`toc` around the `webread` |
+| `pi_age_s` | how stale the reading was when served, from the Pi's monotonic clock |
+
+End-to-end staleness is `pi_age_s + rtt_ms/2 + update time`.
+
+### Two bugs end-to-end testing found
+
+Running the real chain against a real server caught two things no unit test
+would have:
+
+**The Pi was destroying its own measurements.** `/api/status` rounded to
+decimal places — fine for the dashboard's demo magnitudes (21.3 L/MIN,
+48.2 V) and fatal for the real ones. At 0.284 L/min and 0.0028 kW, a flow
+of 0.255 was served as `0.3` and the entire power reading as `0.0`. It now
+rounds to four significant figures, which holds the same relative precision
+at any magnitude.
+
+**`webread` does not always decode.** MATLAB parses JSON into a struct only
+when the server sets `Content-Type: application/json`, and hands back raw
+text otherwise — which arrives downstream as a field of silent `NaN`. The
+bridge now decodes either form.
 
 ## Arduino against the twin
 

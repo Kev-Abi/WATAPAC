@@ -153,6 +153,34 @@ derived values.
 Weather is logged alongside the sensors, which is what makes it possible to
 correlate rainfall against flow rate later.
 
+### For the digital twin
+
+`/api/status` also carries what the MATLAB twin needs and the dashboard
+does not:
+
+| Field | Meaning |
+|---|---|
+| `t1Voltage` `t1Current` `t1Power` | Turbine 1 alone, when the Arduino sends `v1`/`i1` |
+| `t2Voltage` `t2Current` `t2Power` | Turbine 2 alone, from `v2`/`i2` |
+| `readingAgeSeconds` | how stale the reading was when served, from the Pi's **monotonic** clock |
+| `readingAt` `servedAt` | epoch seconds, for reference |
+
+Per-turbine fields let the twin compare Turbine 1 against Turbine 2 live
+instead of only in post-processing. The sketch in Appendix B already
+computes `v1`/`i1` and `v2`/`i2` internally; adding them to its JSON line
+is all that is needed. Without them the server derives the combined bus
+as before — mean voltage, summed current, matching the parallel wiring.
+
+`readingAgeSeconds` is measured with the Pi's monotonic clock on purpose.
+Subtracting the Pi's wall clock from the laptop's would measure the
+**disagreement between two clocks**, not latency: a Pi has no
+battery-backed RTC and can be hours out until it reaches NTP.
+
+**Numbers are rounded to four significant figures, not to decimal places.**
+Decimal rounding suited the dashboard's demo magnitudes and destroyed the
+real ones — at 0.284 L/min a flow of 0.255 was served as `0.3`, and the
+whole power reading rounded away to `0.00`.
+
 ### Reading it back
 
 ```

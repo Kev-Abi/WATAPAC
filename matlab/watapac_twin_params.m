@@ -163,6 +163,19 @@ P.max471_range_a  = 3.0;      % [DS] full scale
 P.adc_lsb_v       = P.adc_vref / (2^P.adc_bits - 1);
 P.current_lsb_a   = P.adc_lsb_v / (P.max471_mv_per_a / 1000);
 
+%% ---- Live monitoring ---------------------------------------------------
+% How far measurement may drift from prediction before the twin raises an
+% alarm. Relative, not absolute: a watt figure means nothing across the
+% range of flows this unit sees.
+%
+% Set well above the current 134x disagreement, which is a calibration
+% fault rather than a fault in the drain. Bring it down to something like
+% 25 % once the current sensor is fixed, and it will then catch the things
+% it is meant to: a blocked mesh, a stalled runner, a dead turbine.
+P.live_alarm_pct   = 50;      % [EST]
+P.live_period_s    = 1.0;     % matches the Arduino's 1 Hz report
+P.live_timeout_s   = 0.8;     % HTTP read timeout, under the poll period
+
 %% ---- Reference load ----------------------------------------------------
 P.powerbank_kwh   = 0.074;    % [MS] 20,000 mAh at 3.7 V
 P.powerbank_max_kw = 0.018;   % [MS] manufacturer maximum input

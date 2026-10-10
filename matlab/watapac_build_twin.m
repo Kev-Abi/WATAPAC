@@ -68,12 +68,26 @@ addb(model, 'simulink/Sources/From Workspace', 'Rainfall', [40 60 150 100], ...
 addb(model, 'simulink/Sources/Constant', 'DebrisLoad', [40 160 150 200], ...
     'Value', 'P.debris_total_g');
 
+% --- live inputs, written once a second by watapac_live ----------------
+% Constant blocks, because a Constant's Value is tunable in Normal mode:
+% set_param can change it while the simulation runs, which is what makes
+% the twin track the prototype. They hold their last value if the Pi goes
+% quiet, so the Scope flatlines rather than dropping to zero.
+live = { 'Flow_In',       '0', [40 520 150 560]
+         'T1_Measured',   '0', [40 590 150 630]
+         'T2_Measured',   '0', [40 660 150 700]
+         'Batt_Measured', '0', [40 730 150 770] };
+for i = 1:size(live,1)
+    addb(model, 'simulink/Sources/Constant', live{i,1}, live{i,3}, 'Value', live{i,2});
+end
+
 subs = { 'Rainfall Runoff',  [230  40 370 120]
          'Debris Filtration',[230 160 370 260]
          'Cascade Turbines', [440  40 590 140]
          'Power Conversion', [660  40 810 180]
          'Battery And Load', [880 160 1030 300]
-         'Sensor Emulation', [660 300 810 420] };
+         'Sensor Emulation', [660 300 810 420]
+         'Live Comparison',  [880 520 1030 700] };
 for i = 1:size(subs,1)
     add_block('built-in/Subsystem', [model '/' subs{i,1}], 'Position', subs{i,2});
 end
@@ -84,6 +98,15 @@ buildTurbines(model);
 buildConversion(model);
 buildBatteryLoad(model);
 buildSensors(model);
+buildLiveComparison(model);
+
+% --- choose what drives the turbines -----------------------------------
+% Double-click the switch to flip between the simulated rainfall chain and
+% the live flow arriving from the Pi. Both paths exist at once so the twin
+% can be demonstrated with or without hardware attached.
+addb(model, 'simulink/Math Operations/Gain', 'LiveFlowToCMS', [200 520 300 560], ...
+    'Gain', '1/60000');
+addb(model, 'simulink/Signal Routing/Manual Switch', 'FlowSource', [420 170 460 230]);
 
 % --- logging. Every stage output is logged; Appendix D logged three. ---
 logs = { 'LogFlow',    'sim_flow',    [1100  40]
@@ -91,7 +114,8 @@ logs = { 'LogFlow',    'sim_flow',    [1100  40]
          'LogEnergy',  'sim_energy',  [1100 160]
          'LogBattery', 'sim_battery', [1100 220]
          'LogLed',     'sim_led',     [1100 280]
-         'LogSensor',  'sim_sensor',  [1100 340] };
+         'LogSensor',  'sim_sensor',  [1100 340]
+         'LogLive',    'sim_live',    [1100 520] };
 for i = 1:size(logs,1)
     pos = [logs{i,3}(1) logs{i,3}(2) logs{i,3}(1)+80 logs{i,3}(2)+40];
     addb(model, 'simulink/Sinks/To Workspace', logs{i,1}, pos, ...
@@ -101,7 +125,10 @@ end
 wire(model, 'Rainfall/1',          'Rainfall Runoff/1');
 wire(model, 'Rainfall Runoff/1',   'Debris Filtration/1');
 wire(model, 'DebrisLoad/1',        'Debris Filtration/2');
-wire(model, 'Debris Filtration/1', 'Cascade Turbines/1');
+wire(model, 'Flow_In/1',           'LiveFlowToCMS/1');
+wire(model, 'Debris Filtration/1', 'FlowSource/1');   % simulated path
+wire(model, 'LiveFlowToCMS/1',     'FlowSource/2');   % live path
+wire(model, 'FlowSource/1',        'Cascade Turbines/1');
 wire(model, 'Cascade Turbines/1',  'Power Conversion/1');   % shaft power, W
 wire(model, 'Debris Filtration/3', 'Power Conversion/2');   % Q to turbine, L/min
 wire(model, 'Power Conversion/3',  'Battery And Load/1');   % charge power, W
@@ -110,12 +137,17 @@ wire(model, 'Rainfall/1',          'Battery And Load/3');   % rain intensity
 wire(model, 'Power Conversion/2',  'Sensor Emulation/1');   % true current, A
 wire(model, 'Power Conversion/1',  'Sensor Emulation/2');   % bus volts
 
+wire(model, 'Power Conversion/4',  'Live Comparison/1');    % predicted W
+wire(model, 'T1_Measured/1',       'Live Comparison/2');
+wire(model, 'T2_Measured/1',       'Live Comparison/3');
+
 wire(model, 'Rainfall Runoff/2',   'LogFlow/1');
 wire(model, 'Power Conversion/4',  'LogPower/1');
 wire(model, 'Power Conversion/5',  'LogEnergy/1');
 wire(model, 'Battery And Load/1',  'LogBattery/1');
 wire(model, 'Battery And Load/2',  'LogLed/1');
 wire(model, 'Sensor Emulation/1',  'LogSensor/1');
+wire(model, 'Live Comparison/3',   'LogLive/1');
 
 %% ---- Solver ------------------------------------------------------------
 % ode23t is stiff-capable and handles the switching in the rectifier cut-in
@@ -502,6 +534,81 @@ wire(s, 'ApplyDeadband/1', 'ReportedA/1');
 wire(s, 'ApplyDeadband/1', 'ReportedWatts/1');
 wire(s, 'BusVolts/1',      'ReportedWatts/2');
 wire(s, 'ReportedWatts/1', 'ReportedW/1');
+end
+
+
+%% ========================================================================
+%  7. LIVE COMPARISON  -  measured against predicted, as it runs
+%  ========================================================================
+function buildLiveComparison(model)
+s = [model '/Live Comparison'];
+openSubsystem(s, 'PredictedW');
+addb(s, 'simulink/Sources/In1', 'T1Measured', [40 220 70 234], 'Port', '2');
+addb(s, 'simulink/Sources/In1', 'T2Measured', [40 300 70 314], 'Port', '3');
+
+% The cascade shares the head, so each runner's share of the predicted
+% output is its share of the head.
+addb(s, 'simulink/Math Operations/Gain', 'T1Share', [150 80 250 120], ...
+    'Gain', 'P.head_split(1)');
+addb(s, 'simulink/Math Operations/Gain', 'T2Share', [150 150 250 190], ...
+    'Gain', 'P.head_split(min(2,numel(P.head_split)))');
+
+addb(s, 'simulink/Math Operations/Sum', 'MeasuredTotal', [150 250 180 280], ...
+    'Inputs', '++');
+addb(s, 'simulink/Math Operations/Sum', 'Error', [330 250 360 280], 'Inputs', '+-');
+addb(s, 'simulink/Math Operations/Abs', 'AbsError', [420 245 460 285]);
+
+% Relative, not absolute: a watt figure means nothing across the range of
+% flows this unit sees. Guarded so a zero measurement cannot divide.
+addb(s, 'simulink/Math Operations/Abs', 'AbsMeasured', [250 340 290 380]);
+addb(s, 'simulink/Sources/Constant', 'TinyFloor', [250 420 320 460], 'Value', '1e-9');
+addb(s, 'simulink/Math Operations/MinMax', 'GuardDiv', [360 350 400 390], ...
+    'Function', 'max', 'Inputs', '2');
+addb(s, 'simulink/Math Operations/Divide', 'RelError', [460 340 500 380], ...
+    'Inputs', '*/');
+addb(s, 'simulink/Math Operations/Gain', 'ToPercent', [540 340 600 380], 'Gain', '100');
+
+addb(s, 'simulink/Sources/Constant', 'AlarmLevel', [540 430 640 470], ...
+    'Value', 'P.live_alarm_pct');
+addb(s, 'simulink/Logic and Bit Operations/Relational Operator', 'Alarm', ...
+    [680 350 720 390], 'Operator', '>');
+
+% One scope with both traces. This is the picture the demo needs: the
+% prototype and its twin on the same axes, diverging or not.
+addb(s, 'simulink/Signal Routing/Mux', 'CompareMux', [600 90 605 200], 'Inputs', '3');
+addb(s, 'simulink/Sinks/Scope', 'MeasuredVsPredicted', [680 110 720 150], ...
+    'NumInputPorts', '1');
+
+addb(s, 'simulink/Sinks/Out1', 'ErrorW',   [800 258 830 272], 'Port', '1');
+addb(s, 'simulink/Sinks/Out1', 'PctError', [800 353 830 367], 'Port', '2');
+addb(s, 'simulink/Sinks/Out1', 'AlarmFlag',[800 363 830 377], 'Port', '3');
+
+wire(s, 'PredictedW/1',  'T1Share/1');
+wire(s, 'PredictedW/1',  'T2Share/1');
+wire(s, 'T1Measured/1',  'MeasuredTotal/1');
+wire(s, 'T2Measured/1',  'MeasuredTotal/2');
+
+wire(s, 'PredictedW/1',  'Error/1');
+wire(s, 'MeasuredTotal/1', 'Error/2');
+wire(s, 'Error/1',       'AbsError/1');
+wire(s, 'Error/1',       'ErrorW/1');
+
+wire(s, 'MeasuredTotal/1', 'AbsMeasured/1');
+wire(s, 'AbsMeasured/1', 'GuardDiv/1');
+wire(s, 'TinyFloor/1',   'GuardDiv/2');
+wire(s, 'AbsError/1',    'RelError/1');
+wire(s, 'GuardDiv/1',    'RelError/2');
+wire(s, 'RelError/1',    'ToPercent/1');
+wire(s, 'ToPercent/1',   'PctError/1');
+
+wire(s, 'ToPercent/1',   'Alarm/1');
+wire(s, 'AlarmLevel/1',  'Alarm/2');
+wire(s, 'Alarm/1',       'AlarmFlag/1');
+
+wire(s, 'T1Share/1',       'CompareMux/1');
+wire(s, 'T2Share/1',       'CompareMux/2');
+wire(s, 'MeasuredTotal/1', 'CompareMux/3');
+wire(s, 'CompareMux/1',    'MeasuredVsPredicted/1');
 end
 
 

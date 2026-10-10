@@ -184,7 +184,12 @@ def assess_flood_risk(water_level: str, rain_detected: bool, flow_lpm: float | N
 # Unknown keys are ignored and missing keys stay None, so adding a sensor to
 # the sketch never breaks the server.
 
-_NUMERIC_KEYS = {"waterCm", "flow", "voltage", "current", "battery"}
+# Per-turbine keys are optional. The sketch in Appendix B computes v1/i1 and
+# v2/i2 internally but only prints the combined pair in JSON mode; adding
+# them to that print is what lets the digital twin compare Turbine 1 against
+# Turbine 2 live instead of only in post-processing.
+_NUMERIC_KEYS = {"waterCm", "flow", "voltage", "current", "battery",
+                 "v1", "i1", "v2", "i2"}
 _BOOLEAN_KEYS = {"rain", "emergency"}
 
 
@@ -280,14 +285,32 @@ class Telemetry:
         if not fresh:
             return None
 
+        v1, i1 = reading.get("v1"), reading.get("i1")
+        v2, i2 = reading.get("v2"), reading.get("i2")
+
+        # Combined bus, if the Arduino sent the turbines separately. The
+        # sketch wires them in parallel, so the bus voltage is their mean
+        # and the bus current is their sum. Falls back to whatever the
+        # Arduino sent as already-combined.
         voltage = reading.get("voltage")
         current = reading.get("current")
+        if voltage is None and (v1 is not None or v2 is not None):
+            present = [v for v in (v1, v2) if v is not None]
+            voltage = sum(present) / len(present)
+        if current is None and (i1 is not None or i2 is not None):
+            current = sum(i for i in (i1, i2) if i is not None)
+
         flow = reading.get("flow")
         battery = reading.get("battery")
         rain = bool(reading.get("rain", False))
         water_level = classify_water_level(reading.get("waterCm"))
 
+        def turbine_power(v, i):
+            return (v * i) if (v is not None and i is not None) else None
+
         return {
+            "t1Voltage": v1, "t1Current": i1, "t1Power": turbine_power(v1, i1),
+            "t2Voltage": v2, "t2Current": i2, "t2Power": turbine_power(v2, i2),
             "rain": rain,
             "waterCm": reading.get("waterCm"),
             "waterLevel": water_level,
@@ -315,6 +338,8 @@ class Telemetry:
             with self.lock:
                 total_kwh = self.total_kwh
             return {
+                "t1Voltage": "—", "t1Current": "—", "t1Power": "—",
+                "t2Voltage": "—", "t2Current": "—", "t2Power": "—",
                 "arduinoConnected": False,
                 "rainStatus": "NO DATA",
                 "floodRisk": "NO DATA",
@@ -328,12 +353,32 @@ class Telemetry:
                 "waterLevel": "NO DATA",
             }
 
-        # script.js appends units only to numbers, so a missing sensor must
-        # come through as the em dash and never as 0.
-        def num(value, digits):
-            return round(value, digits) if value is not None else "—"
+        # Round to SIGNIFICANT FIGURES, not decimal places.
+        #
+        # Decimal rounding was fine for the dashboard's demo magnitudes
+        # (21.3 L/MIN, 48.2 V) and destroys the real ones. At the measured
+        # 0.284 L/min and 0.0028 kW, "%.1f" turns 0.255 into 0.3 and "%.2f"
+        # turns the entire power reading into 0.00. Significant figures hold
+        # the same relative precision whatever the magnitude, which is what
+        # a sensor feed needs -- and what the digital twin compares against.
+        def num(value, digits, sig=4):
+            if value is None:
+                return "—"
+            if value == 0:
+                return 0.0
+            return float(f"{value:.{sig}g}")
+
+        # Per-turbine watts, in W. The dashboard does not show these; the
+        # digital twin does, to compare T1 against T2 as they run.
+        per_turbine = {
+            "t1Voltage": num(d["t1Voltage"], 2), "t1Current": num(d["t1Current"], 3),
+            "t1Power":   num(d["t1Power"], 4),
+            "t2Voltage": num(d["t2Voltage"], 2), "t2Current": num(d["t2Current"], 3),
+            "t2Power":   num(d["t2Power"], 4),
+        }
 
         return {
+            **per_turbine,
             "arduinoConnected": True,
             "rainStatus": "DETECTED" if d["rain"] else "NOT DETECTED",
             "floodRisk": d["floodRisk"],
@@ -631,6 +676,18 @@ def no_store(response):
 def api_status():
     payload = telemetry.snapshot()
     payload["weather"] = weather.snapshot()
+
+    # Two clocks, for the digital twin's latency measurement:
+    #   readingAt  when the Arduino's reading reached the Pi
+    #   servedAt   when this response was built
+    # Their difference is how stale the data already was before it left the
+    # Pi; the twin adds its own network and update time on top.
+    with telemetry.lock:
+        age = (time.monotonic() - telemetry.last_reading_at) if telemetry.last_reading_at else None
+    now = time.time()
+    payload["servedAt"] = round(now, 3)
+    payload["readingAt"] = round(now - age, 3) if age is not None else None
+    payload["readingAgeSeconds"] = round(age, 3) if age is not None else None
     return jsonify(payload)
 
 
