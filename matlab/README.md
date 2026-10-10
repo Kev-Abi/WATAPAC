@@ -21,6 +21,7 @@ model look more finished than it is.
 | `watapac_plant.m` | Six-stage physics, plain MATLAB — the reference. |
 | `watapac_simulate.m` | The same, over time (LED hold, state of charge). |
 | `watapac_validate.m` | Model against measurement. **Start here.** |
+| `watapac_compare.m` | Arduino telemetry against the twin, stage by stage. |
 | `watapac_build_twin.m` | Builds `watapac_twin.slx` in Simulink. |
 | `legacy/` | The first draft builder, kept for reference. See "Why it was rewritten". |
 
@@ -96,6 +97,59 @@ stage.
 
 Neither finding is hidden behind a fitted constant. The twin computes the
 physics and prints the disagreement, which is what a twin is for.
+
+## Arduino against the twin
+
+```matlab
+watapac_compare                                  % the five recorded trials
+watapac_compare('Log', '../pi/logs')             % logged 1 Hz telemetry
+watapac_compare('Url', 'http://192.168.1.42:5000')
+watapac_compare('PlotFile', 'twin_vs_measured.png')
+```
+
+This is the Real-Time Data Sync the Integration Guide describes: measured
+telemetry and simulated prediction side by side, with a figure for the
+manuscript.
+
+### Why it is staged
+
+The obvious design feeds rainfall in one end and compares power at the
+other. That produces a single number which tells you nothing, because an
+error in the runoff model arrives at the turbine as a flow error and
+leaves as a power error — you cannot see which stage caused it.
+
+So each stage is driven by the **measured** input to that stage:
+
+| Stage | Driven by | Tests |
+|---|---|---|
+| 1 | the known 15 mm/h | catchment model only |
+| 3–4 | the **measured** flow | turbine and electrical model only |
+
+An error then stays in the stage that caused it.
+
+### What it reports
+
+```
+  stage 1  rainfall -> flow      AGREES          -0.1 %
+  stage 4  flow -> bus voltage   AGREES          -3.2 %
+  stage 4  flow -> current       DIVERGES       -99.8 %
+  stage 4  flow -> power         DIVERGES       -99.9 %
+```
+
+Per signal: bias, RMSE, MAE, percentage error, and Nash–Sutcliffe
+efficiency — the standard goodness-of-fit in hydrology, included because
+this is a drainage study.
+
+**NSE is withheld where it would mislead.** It compares a model against
+"just predict the mean", so when every sample had the same input the twin
+*is* a constant, NSE is 0 by construction, and reporting "worse than the
+mean" would describe the experiment design rather than the model. In that
+case the function says so and points at the bias instead.
+
+The staged result localises the fault precisely: flow is right to 0.1 %
+and bus voltage to 3.2 %, so the catchment, the turbine geometry and the
+generator are all modelled correctly. Current is out by 99.8 %. The
+problem is the current measurement, not the turbine.
 
 ## Reading the logged data
 
