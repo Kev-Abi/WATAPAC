@@ -61,7 +61,8 @@ watapac_build_turbine_3d
 | MATLAB log loader | ✅ Written — ⏳ untested without a MATLAB licence |
 | 3D viewport | ✅ Wired — ⏳ waiting on the `.glb` |
 | Turbine geometry model | ✅ Builds — ⏳ dimensions unverified against the prototype |
-| Turbine physics | ❌ Not started — the model is geometry only |
+| Digital twin (6 stages) | ✅ Built and validated against all 5 trials |
+| Turbine physics | ✅ Modelled — ⚠️ disagrees with the measured energy by 134× |
 | Historical charts | ❌ Not started — the data exists, the panels do not |
 
 ## A note on the placeholder numbers
@@ -76,3 +77,19 @@ are marked as such where they appear:
 
 None of them should be quoted as results until they have been checked
 against the prototype.
+
+## Two findings from the digital twin
+
+Run `cd matlab && watapac_validate` for the working. Both concern the energy
+results only; the flow and filtration results reproduce cleanly.
+
+1. **The measured electrical output exceeds the hydraulic energy available
+   by 134×.** 0.284 L/min through 0.45 m of head carries 20.9 mW; Tables 5–7
+   report 2.80 W. The ratio is 132–136× in every trial, which points at a
+   calibration scale error. The predicted current, 0.70 mA, is below one ADC
+   count on a MAX471 and below the firmware's own 25 mA deadband.
+
+2. **The charge path cannot work as built.** The XL4015 is a step-down
+   converter and needs 14.1 V to charge a full 3S LiPo. The turbines supply
+   ~6 V in parallel or ~12 V in series. This is independent of finding 1 and
+   needs a boost stage.

@@ -15,6 +15,13 @@ model look more finished than it is.
 | `watapac_params.m` | Every dimension, in one place. Validates itself. |
 | `watapac_build_turbine_3d.m` | Builds and saves `WATAPAC_3D_Simscape_Turbine.slx`. |
 | `watapac_load_log.m` | Reads logged telemetry from the Pi into a table. |
+| **Digital twin** | |
+| `watapac_twin_params.m` | Every constant, each tagged with where it came from. |
+| `watapac_trial_data.m` | The five measured trials, Appendix G. |
+| `watapac_plant.m` | Six-stage physics, plain MATLAB — the reference. |
+| `watapac_simulate.m` | The same, over time (LED hold, state of charge). |
+| `watapac_validate.m` | Model against measurement. **Start here.** |
+| `watapac_build_twin.m` | Builds `watapac_twin.slx` in Simulink. |
 | `legacy/` | The first draft builder, kept for reference. See "Why it was rewritten". |
 
 ## Running it
@@ -33,6 +40,62 @@ Options:
 watapac_build_turbine_3d('Open', false, 'Save', false)   % dry run
 watapac_build_turbine_3d('Params', watapac_params('n_blades', 12))
 ```
+
+## The digital twin
+
+```matlab
+cd matlab
+watapac_validate        % model vs the five measured trials — no Simulink needed
+watapac_build_twin      % then the Simulink model
+```
+
+`watapac_validate` runs without Simulink and without a toolbox, because the
+physics lives in `watapac_plant` as a plain function. The Simulink model
+mirrors it stage for stage; if the two ever disagree, the function is right.
+
+### The six stages
+
+| | Stage | What it models |
+|---|---|---|
+| 1 | Rainfall → runoff | Rational method against the **test** catchment, back-calculated from the measured flow |
+| 2 | Filtration | Per-type capture for leaves and plastic separately, plus mesh blockage |
+| 3 | Cascade turbines | T1 and T2 as separate runners sharing the head, not one lumped turbine |
+| 4 | Power conversion | Alternator → 3-phase rectifier (with its diode drop and cut-in) → buck converter |
+| 5 | Battery and load | LED strip, Raspberry Pi, Arduino, sensors; SOC limited inside the integrator |
+| 6 | Sensor emulation | What the MAX471 and the firmware would actually *report*, not just the true value |
+
+Stage 6 is the unusual one and the reason the twin is worth having. A model
+that predicts only the true current cannot explain why the prototype
+reported 0.23 A. One that also models the 1 V/A sensor, the 10-bit ADC and
+the firmware's 25 mA deadband predicts the **reading** — and the reading it
+predicts is `0.000 A`.
+
+### What the twin found
+
+Run `watapac_validate` for the full output. In summary:
+
+| | |
+|---|---|
+| Flow and filtration | Model reproduces measurement (0.2840 vs 0.284 L/min; 97.36 vs 97.4 %) |
+| Energy output | Model and measurement differ by **134×** |
+| Charge path | **Not viable** — a buck converter cannot charge 12.6 V from a 5.8 V bus |
+| System balance | Load exceeds generation by ~3900× |
+
+**The energy gap.** At 0.284 L/min through 0.45 m of head the water carries
+20.9 mW. Tables 5–7 report 2.80 W. To justify that at the measured flow you
+would need 60 m of head; the prototype is 0.589 m tall. The ratio is 132–136×
+in *every* trial across a 41 % spread in flow, which is the signature of a
+calibration scale error rather than noise. Predicted current is 0.70 mA —
+0.14 of one ADC count, and below the firmware's own deadband.
+
+**The charge path.** Independent of the above. The XL4015 in Appendix A is a
+step-down converter; it needs an input above both its 8 V minimum and the
+pack voltage plus dropout, so 14.1 V for a full 3S LiPo. The turbines give
+~6 V in parallel, ~12 V in series. Neither is enough. This needs a boost
+stage.
+
+Neither finding is hidden behind a fitted constant. The twin computes the
+physics and prints the disagreement, which is what a twin is for.
 
 ## Reading the logged data
 
@@ -114,8 +177,37 @@ These are guesses, flagged so they are not mistaken for measurements:
   45 mm hub leaves 35.3 mm of arc each — about 0.3 mm of clearance.
   `watapac_params` warns as soon as any change tips that negative.
 
+## Bugs carried over from Appendix D
+
+The manuscript's `watapac_digital_twin.m` is the starting point for
+`watapac_build_twin.m`. These were fixed on the way:
+
+- **Debris load 250 g**, ten times the 25 g the Methodology specifies
+- **`StopTime` 600 s**, where a trial is 1000 s
+- **The LED load was never connected to the battery.** `LedWatts` was
+  computed and left dangling, so the pack could only ever charge
+- **`EnergyKWh` was computed and discarded** — the paper's headline energy
+  result was never logged
+- **Three conflicting battery models** across the firmware (11.8–12.7 V),
+  the Pi server (9.9–11.1 V) and the twin (11.8–12.7 V, 7.0 Ah), against a
+  pack listed in Appendix A as 11.1 V 5000 mAh. The firmware range covers
+  only the top ~20 % of a 3S pack, so the dashboard reads 0 % for most of
+  the usable charge
+- **No rectifier.** Omitting the 1.4 V bridge drop puts the bus voltage too
+  high and makes output linear in flow down to zero, with no cut-in
+- **The Pi and Arduino were absent from the energy balance** — together
+  about 1000× the modelled generation
+- **A 1200 m² street catchment with Froude scaling applied to it**, then
+  compared against a bench measurement. That mixes a full-scale prediction
+  with a model-scale result; the two are kept apart here
+- **The blockage model predicted ~50 % flow loss at 25 g**, which Table 4
+  explicitly refutes (t(8) = −0.339, p = .743, and WATAPAC passed slightly
+  *more* water than the conventional model)
+
 ## Still to build
 
-- Couple hydraulic torque and the generator, so the shafts are driven
-- Feed logged sensor data in, to compare model against measurement
+- Couple the twin to the logged telemetry, so it runs against live data
+  rather than the five recorded trials
+- Re-measure the electrical output with an instrument that can resolve
+  milliamps, and recalibrate `kv_ac_per_lpm` against it
 - Export geometry for the web dashboard's 3D panel
