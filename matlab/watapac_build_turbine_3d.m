@@ -428,9 +428,17 @@ end
 
 
 function setSolidColor(blk, rgb)
-% Cosmetic only. A release that spells these differently should not stop a build.
-setAny(blk, {'GraphicType','VisualType'}, 'Simple', 'graphic type', false);
-setAny(blk, {'SimpleVisualShapeColor','Color','VisualColor'}, mat2str(rgb), 'colour', false);
+%SETSOLIDCOLOR  Cosmetic only -- never fatal.
+%
+%   Confirmed on R2026a: the colour is GraphicDiffuseColor. The earlier
+%   guesses (SimpleVisualShapeColor, Color, VisualColor) do not exist on
+%   any release this was checked against.
+%
+%   GraphicType is left alone. A shape-specific solid already defaults to
+%   drawing its own geometry, so setting it adds a release-dependent enum
+%   for no benefit; only the old generic Solid needed telling.
+setAny(blk, {'GraphicDiffuseColor','SimpleVisualShapeColor','Color'}, ...
+    mat2str(rgb), 'diffuse colour', false);
 end
 
 
