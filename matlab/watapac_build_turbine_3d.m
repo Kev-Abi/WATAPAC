@@ -97,13 +97,13 @@ for s = 1:p.n_stages
     connect(mdl, rtStage, 2, joint, 1);
 
     % --- hub and shaft, both coaxial with the joint, so no transform ---
-    hub = addBlk(mdl, L.Solid, sprintf('%s Hub', tag), [520 y0+20 620 y0+80]);
-    setSolidCylinder(hub, p.hub_radius_m, p.hub_length_m);
+    hub = addBlk(mdl, L.cylinderBlock, sprintf('%s Hub', tag), [520 y0+20 620 y0+80]);
+    setSolidCylinder(hub, p.hub_radius_m, p.hub_length_m, L.cylinderIsShaped);
     setSolidColor(hub, p.color_hub);
     connect(mdl, joint, 2, hub, 1);
 
-    shaft = addBlk(mdl, L.Solid, sprintf('%s Shaft', tag), [520 y0+100 620 y0+160]);
-    setSolidCylinder(shaft, p.shaft_radius_m, p.shaft_length_m);
+    shaft = addBlk(mdl, L.cylinderBlock, sprintf('%s Shaft', tag), [520 y0+100 620 y0+160]);
+    setSolidCylinder(shaft, p.shaft_radius_m, p.shaft_length_m, L.cylinderIsShaped);
     setSolidColor(shaft, p.color_shaft);
     connect(mdl, joint, 2, shaft, 1);
 
@@ -132,9 +132,9 @@ for s = 1:p.n_stages
         setRotation(rtPitch, 'X', p.blade_pitch_deg);
         connect(mdl, rtOff, 2, rtPitch, 1);
 
-        blade = addBlk(mdl, L.Solid, [bt ' Blade'], [880 yb 980 yb+40]);
+        blade = addBlk(mdl, L.brickBlock, [bt ' Blade'], [880 yb 980 yb+40]);
         % X radial (length), Y tangential (thickness), Z along the shaft (width)
-        setSolidBrick(blade, [p.blade_length_m p.blade_thick_m p.blade_width_m]);
+        setSolidBrick(blade, [p.blade_length_m p.blade_thick_m p.blade_width_m], L.brickIsShaped);
         setSolidColor(blade, p.color_blade);
         connect(mdl, rtPitch, 2, blade, 1);
     end
@@ -203,6 +203,12 @@ spec = { ...
       {'sm_lib/Frames and Transforms/Rigid Transform'}; ...
   'Solid',                   'Solid', ...
       {'sm_lib/Body Elements/Solid'}; ...
+  'SolidCylinder',           'Cylindrical Solid', ...
+      {'sm_lib/Body Elements/Solids/Cylindrical Solid', ...
+       'sm_lib/Body Elements/Cylindrical Solid'}; ...
+  'SolidBrick',              'Brick Solid', ...
+      {'sm_lib/Body Elements/Solids/Brick Solid', ...
+       'sm_lib/Body Elements/Brick Solid'}; ...
   'RevoluteJoint',           'Revolute Joint', ...
       {'sm_lib/Joints/Revolute Joint'}; ...
   'MechanismConfiguration',  'Mechanism Configuration', ...
@@ -228,7 +234,13 @@ for i = 1:size(spec,1)
         found = searchByName(blockName, libs);
     end
 
-    if isempty(found)
+    % The solid blocks are alternatives to each other, not all required:
+    % R2026a dropped the generic Solid in favour of shape-specific blocks,
+    % while older releases have only the generic one. Resolve what exists
+    % and decide afterwards whether enough of it is there.
+    optional = any(strcmp(key, {'Solid', 'SolidCylinder', 'SolidBrick'}));
+
+    if isempty(found) && ~optional
         error('watapac:blockNotFound', ...
             ['Cannot find the "%s" block.\n' ...
              'Tried: %s\n' ...
@@ -238,9 +250,35 @@ for i = 1:size(spec,1)
     end
 
     L.(key) = found;
-    fprintf('  block  : %-24s -> %s\n', blockName, found);
+    if ~isempty(found)
+        fprintf('  block  : %-24s -> %s\n', blockName, found);
+    end
 end
+
+% Pick which solid blocks to use, preferring the shape-specific ones.
+L.cylinderBlock = firstNonEmpty({L.SolidCylinder, L.Solid});
+L.brickBlock    = firstNonEmpty({L.SolidBrick,    L.Solid});
+L.cylinderIsShaped = ~isempty(L.SolidCylinder);
+L.brickIsShaped    = ~isempty(L.SolidBrick);
+
+if isempty(L.cylinderBlock) || isempty(L.brickBlock)
+    error('watapac:noSolidBlock', ...
+        ['No usable solid block found in sm_lib.\n' ...
+         'Looked for "Solid", "Cylindrical Solid" and "Brick Solid".\n' ...
+         'Run watapac_check_env -- it lists every block whose name\n' ...
+         'contains "Solid" on this release -- and send the output.']);
+end
+fprintf('  solids : cylinder -> %s\n', L.cylinderBlock);
+fprintf('           brick    -> %s\n', L.brickBlock);
 fprintf('\n');
+end
+
+
+function out = firstNonEmpty(items)
+out = '';
+for i = 1:numel(items)
+    if ~isempty(items{i}); out = items{i}; return; end
+end
 end
 
 
@@ -355,16 +393,37 @@ end
 %  Parameter setting, with runtime name resolution
 %  ========================================================================
 
-function setSolidCylinder(blk, radius, len)
-setAny(blk, {'GeometryShape','ShapeType','Shape'}, 'Cylinder', 'cylinder shape', true);
+function setSolidCylinder(blk, radius, len, isShaped)
+%SETSOLIDCYLINDER  A Cylindrical Solid already knows its shape; a generic
+%   Solid has to be told. Only the generic one takes the shape parameter.
+if ~isShaped
+    setAnyValue(blk, firstParamPresent(blk, {'GeometryShape','ShapeType','Shape'}), ...
+        {'Cylinder'}, 'cylinder shape', true);
+end
 setAny(blk, {'CylinderRadius','Radius'}, num2str(radius, '%.6g'), 'cylinder radius', true);
 setAny(blk, {'CylinderLength','Length'}, num2str(len, '%.6g'), 'cylinder length', true);
 end
 
 
-function setSolidBrick(blk, dims)
-setAny(blk, {'GeometryShape','ShapeType','Shape'}, 'Brick', 'brick shape', true);
+function setSolidBrick(blk, dims, isShaped)
+if ~isShaped
+    setAnyValue(blk, firstParamPresent(blk, {'GeometryShape','ShapeType','Shape'}), ...
+        {'Brick'}, 'brick shape', true);
+end
 setAny(blk, {'BrickDimensions','Dimensions'}, mat2str(dims), 'brick dimensions', true);
+end
+
+
+function name = firstParamPresent(blk, candidates)
+%FIRSTPARAMPRESENT  The first of CANDIDATES this block actually has.
+avail = paramNames(blk);
+for i = 1:numel(candidates)
+    if any(strcmp(avail, candidates{i})); name = candidates{i}; return; end
+end
+error('watapac:paramNotFound', ...
+    ['%s has none of: %s\n  block exposes: %s\n' ...
+     'Run watapac_check_env and send its output.'], ...
+    shortName(blk), strjoin(candidates, ', '), strjoin(avail, ', '));
 end
 
 
@@ -377,22 +436,82 @@ end
 
 function setRotation(blk, axis, degrees)
 %SETROTATION  Rotation only; translation explicitly disabled.
-setAny(blk, {'RotationMethod','MethodR'}, 'Standard Axis', 'rotation method', true);
-setAny(blk, {'RotationAxis','StandardAxis','AxisR'}, ['+' axis], 'rotation axis', true);
-setAny(blk, {'RotationAngle','AngleR','Angle'}, num2str(degrees, '%.6g'), 'rotation angle', true);
-setAny(blk, {'RotationAngleUnits','AngleUnits','AngleRUnits'}, 'deg', 'angle units', false);
-setAny(blk, {'TranslationMethod','MethodT'}, 'None', 'translation method (none)', false);
+%
+%   Parameter names confirmed against R2026a by watapac_check_env. The
+%   rotation axis is RotationStandardAxis, not RotationAxis -- worth noting,
+%   because RotationAxis does not exist and the guess failed silently in the
+%   sense that nothing matched and the build stopped.
+%
+%   The enum VALUES are still release-dependent, so each is tried in turn:
+%   'StandardAxis' and 'Standard Axis' differ only by a space and only one
+%   of them is accepted.
+setAnyValue(blk, 'RotationMethod', {'StandardAxis','Standard Axis'}, ...
+    'rotation method', true);
+setAny(blk, {'RotationStandardAxis','RotationAxis','StandardAxis'}, ...
+    ['+' axis], 'rotation axis', true);
+setAny(blk, {'RotationAngle','AngleR'}, num2str(degrees, '%.6g'), 'rotation angle', true);
+setAny(blk, {'RotationAngleUnits','AngleUnits'}, 'deg', 'angle units', false);
+setAnyValue(blk, 'TranslationMethod', {'None'}, 'translation method (none)', false);
 end
 
 
 function setTranslation(blk, xyz)
 %SETTRANSLATION  Translation only; rotation explicitly disabled.
-setAny(blk, {'RotationMethod','MethodR'}, 'None', 'rotation method (none)', false);
-setAny(blk, {'TranslationMethod','MethodT'}, 'Cartesian', 'translation method', true);
-setAny(blk, {'TranslationCartesianOffset','CartesianOffset','OffsetT','Offset'}, ...
+setAnyValue(blk, 'RotationMethod', {'None'}, 'rotation method (none)', false);
+setAnyValue(blk, 'TranslationMethod', {'Cartesian'}, 'translation method', true);
+setAny(blk, {'TranslationCartesianOffset','CartesianOffset'}, ...
     mat2str(xyz), 'cartesian offset', true);
-setAny(blk, {'TranslationCartesianOffsetUnits','OffsetUnits','CartesianOffsetUnits'}, ...
+setAny(blk, {'TranslationCartesianOffsetUnits','CartesianOffsetUnits'}, ...
     'm', 'offset units', false);
+end
+
+
+function ok = setAnyValue(blk, name, candidateValues, what, required)
+%SETANYVALUE  One parameter name, several possible spellings of its VALUE.
+%
+%   The mirror image of setAny: there the name was uncertain, here the name
+%   is known and the accepted enum string is not.
+ok = false;
+if ~any(strcmp(paramNames(blk), name))
+    if required
+        error('watapac:paramNotFound', ...
+            ['%s has no parameter "%s".\n  block exposes: %s\n' ...
+             'Run watapac_check_env and send its output.'], ...
+            shortName(blk), name, strjoin(paramNames(blk), ', '));
+    end
+    return;
+end
+
+lastErr = '';
+for i = 1:numel(candidateValues)
+    try
+        set_param(blk, name, candidateValues{i});
+        paramLog('add', [what ' value (' blockKind(blk) ')'], ...
+            [name ' = ' candidateValues{i}]);
+        ok = true;
+        return;
+    catch err
+        lastErr = err.message;
+    end
+end
+
+allowed = '<unknown>';
+try
+    op = get_param(blk, 'ObjectParameters');
+    if isfield(op, name) && isfield(op.(name), 'Enum')
+        allowed = strjoin(op.(name).Enum(:)', ' | ');
+    end
+catch
+end
+msg = sprintf(['could not set %s on %s\n' ...
+    '  parameter    : %s\n  tried values : %s\n' ...
+    '  accepts      : %s\n  last error   : %s\n'], ...
+    what, shortName(blk), name, strjoin(candidateValues, ', '), allowed, lastErr);
+if required
+    error('watapac:badEnumValue', '%s', msg);
+else
+    warning('watapac:badEnumValue', '%s', msg);
+end
 end
 
 
