@@ -1,0 +1,34 @@
+# Python (pi/)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# MATLAB / Simulink build artifacts
+slprj/
+sccprj/
+*.slxc
+*.autosave
+*.asv
+*.slx.r*
+codegen/
+
+# Generated Simulink model — rebuilt by matlab/watapac_build_turbine_3d.m
+matlab/WATAPAC_3D_Simscape_Turbine.slx
+
+# Logged telemetry (regenerated at runtime, can get large)
+pi/logs/
+
+# OS cruft
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# Live-monitoring run logs
+matlab/live_logs/
